@@ -1,0 +1,14 @@
+name: bestDEG
+title: bestDEG
+username:
+account: prasert05
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5658677
+bundleId: 5859156
+url: https://prasert05.shinyapps.io/bestDEG/
+when: 1651474206.29794
+lastSyncTime: 1651474206.29794
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .Rprofile|coldata.tsv|cts.tsv|required_package_install.R|DEG_pipeline

@@ -1,0 +1,42 @@
+/* Header with warning message */
+.HeadWithWarn {
+  display: inline-block;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* Warning text */
+.Warn {
+  color:red;
+  display: inline-block;
+}
+
+/* Footer */
+.Footer {
+  text-align: center;
+  min-inline-size: -webkit-fill-available;
+}
+
+/* Result box area */
+.ResultArea {
+  padding: 20px 20px 20px 20px;
+  border: 1px solid rgba(0,0,0,0.125);
+  border-radius: 4px;
+}
+
+/* Box container area */
+.BoxArea {
+  padding: 4px 8px 6px 8px;
+  border: 1px solid rgba(0,0,0,0.125);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  background-color: rgba(0,0,0,0.02);
+}
+
+/* Download button */
+.DownloadButton {
+  text-align: center;
+  width: 200px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}

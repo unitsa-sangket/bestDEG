@@ -59,3 +59,5 @@ for (i in package_name2) {
 }
 
 rm(i, package_name, package_name2)
+
+options(repos = BiocManager::repositories())

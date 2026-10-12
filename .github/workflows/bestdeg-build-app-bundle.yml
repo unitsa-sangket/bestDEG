@@ -1,0 +1,246 @@
+# bestDEG app-layer bundle builder for the ShinyApps store (Route A).
+# Place at  fentouxungui/bestDEG/.github/workflows/bestdeg-build-app-bundle.yml
+#           on the DEFAULT branch = main.  No shell rebuild is required.
+#
+# Produces, per platform:  bestdeg-<version>-<platform>.zip
+#   bundle/  +- manifest.json
+#            +- app/{app.R,global.R,ui.R,server.R}   (app.R is generated here)
+#            +- app/R/**  +- app/www/**  +- app/{cts.tsv,coldata.tsv,data/**}
+#            +- rlib/<Pkg>/   (prebuilt CRAN/Bioconductor binaries, R 4.6.1)
+#
+# Contract check (same onboarding as iSEE / UCSCXenaShiny / spatialLIBD / beeRapp / CSBB-Shiny):
+#   * bestDEG is a MULTI-FILE Shiny app (NOT an R package):
+#       global.R (options + library) + ui.R (defines `ui`) + server.R (defines
+#       `server`), with helper functions in R/*.R (run_edgeR / run_DESeq2 /
+#       run_NOISeq / run_EBSeq).  In a normal checkout shiny::runApp() sources
+#       global.R + R/*.R, then evaluates ui.R + server.R into a shiny.appobj
+#       that NEVER calls shiny::runApp() itself.
+#   * The shell launches the bundle with shiny::runApp("app").  A directory
+#     containing app.R IGNORES ui.R/server.R, so this workflow GENERATES
+#     app/app.R (the bundle entry) that sources global.R + R/*.R + ui.R +
+#     server.R and ends with shinyApp(ui, server).  The entry also locates its
+#     own directory from --file so relative asset paths
+#     (includeCSS("www/..."), img(src="images/..."), file.copy("cts.tsv"))
+#     resolve whether it is launched as a directory app or as a script.
+#   * No DESCRIPTION / no `R CMD build`: this is not a package.  The dependency
+#     seed is required_package_install.R plus library()/:: calls in the app
+#     sources (bslib and tibble are used but only appear in the app code).
+#
+# Notes / gotchas handled here:
+#   * DESeq2, edgeR, NOISeq, EBSeq are Bioconductor; the rest are CRAN.  The
+#     closure is installed in two passes (prebuilt binaries, then a source
+#     fallback for any package without a binary for the pinned R release).
+#   * `pasilla` (used only by DEG_pipeline/example_data_pasilla_generate.R to
+#     build example data) is intentionally NOT bundled: it is not needed at
+#     runtime and would only bloat the bundle.
+#   * required_package_install.R calls install.packages() if executed, but
+#     nothing in the app sources it, so it is left out of the offline bundle.
+#   * No runtime network is required: the DEG pipeline is fully local.
+#   * base-priority packages are excluded from the closure; recommended ones
+#     (Matrix, MASS, survival, lattice, ...) are kept so the bundle is
+#     self-contained.
+
+name: Build app bundle
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach bundles to"
+        required: false
+        type: string
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+env:
+  APP_ID: bestdeg
+  APP_NAME: bestDEG
+  APP_AUTHOR: "Prasert Yodsawat"
+  APP_DESC: "Automated precise prediction of differentially expressed genes (DEGs) from RNA-seq data by combining edgeR, DESeq2, NOISeq and EBSeq"
+  APP_HOMEPAGE: "https://github.com/fentouxungui/bestDEG"
+  APP_LICENSE: "Unspecified (upstream declares no license)"
+  R_VERSION: "4.6.1"
+
+jobs:
+  bundle:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: "win-x64" }
+          - { os: macos-14,       platform: "mac-arm64" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+          use-public-rspm: true
+
+      - name: Install build helpers
+        shell: bash
+        run: Rscript -e 'install.packages(c("jsonlite","zip","digest","BiocManager"), repos="https://cloud.r-project.org")'
+
+      - name: Resolve store version
+        shell: bash
+        run: |
+          V="${{ github.event.release.tag_name }}${{ inputs.tag }}"
+          V="${V#v}"
+          if [ -z "$V" ]; then V="0.1.0"; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Assemble bundle (app/ + rlib/ + manifest.json)
+        shell: Rscript {0}
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bundle <- file.path(getwd(), "bundle")
+          unlink(bundle, recursive = TRUE); dir.create(bundle, recursive = TRUE)
+          appdir <- file.path(bundle, "app"); dir.create(appdir, recursive = TRUE)
+          lib <- file.path(bundle, "rlib"); dir.create(lib, recursive = TRUE)
+
+          # --- 1. copy the app sources verbatim ------------------------------
+          src <- getwd()
+          for (f in c("global.R", "ui.R", "server.R", "R", "www", "data",
+                      "cts.tsv", "coldata.tsv", "README.md")) {
+            from <- file.path(src, f)
+            if (file.exists(from)) file.copy(from, appdir, recursive = TRUE)
+          }
+          for (need in c("global.R", "ui.R", "server.R",
+                         file.path("R", "edgeR_function.R"))) {
+            if (!file.exists(file.path(appdir, need))) stop(need, " missing after copy")
+          }
+
+          # --- 2. generate the bundle entry app/app.R ------------------------
+          # A directory app that contains app.R ignores ui.R/server.R, so the
+          # entry reconstructs the app: source global.R + R/*.R, then ui.R +
+          # server.R, and return the shinyApp object WITHOUT calling runApp().
+          writeLines(c(
+            '# bestDEG bundle entry (generated by bestdeg-build-app-bundle.yml)',
+            'options(shiny.launch.browser = FALSE, shiny.deprecation.messages = FALSE)',
+            '# Resolve relative asset paths whether launched as a directory app',
+            '# (runApp("app"); cwd is already the app dir) or as a script.',
+            '.a <- commandArgs(trailingOnly = FALSE)',
+            '.f <- sub("^--file=", "", .a[grepl("^--file=", .a)])',
+            'if (length(.f) == 1L && nzchar(.f)) setwd(dirname(normalizePath(.f)))',
+            'source("global.R", local = TRUE)',
+            'for (.r in list.files("R", pattern = "[.]R$", full.names = TRUE)) source(.r, local = TRUE)',
+            'source("ui.R", local = TRUE)',
+            'source("server.R", local = TRUE)',
+            'shiny::shinyApp(ui, server)'
+          ), file.path(appdir, "app.R"))
+
+          # --- 3. install the dependency closure into bundle/rlib -----------
+          repos <- BiocManager::repositories()
+          options(repos = repos)
+
+          # Seed = required_package_install.R + library()/:: calls in the app.
+          # grDevices/stats/graphics/methods are base R and are not installed.
+          seed <- c("shiny", "bslib", "shinyjs", "waiter", "DT",
+                    "ggplot2", "dplyr", "tibble", "gplots", "ggvenn",
+                    "DESeq2", "edgeR", "NOISeq", "EBSeq", "BiocManager")
+
+          db <- available.packages(repos = repos)
+          cat("available packages:", nrow(db), "\n")
+          closure <- unique(c(seed,
+                     unlist(tools::package_dependencies(seed, db = db, recursive = TRUE))))
+          base_pkgs <- rownames(installed.packages(priority = "base"))
+          closure <- setdiff(closure, base_pkgs)
+          closure <- closure[closure %in% rownames(db)]
+          cat("closure packages to install:", length(closure), "\n")
+
+          install_into <- function(pkgs, type) {
+            if (!length(pkgs)) return(invisible())
+            install.packages(pkgs, lib = lib, repos = repos, type = type,
+                             dependencies = FALSE, Ncpus = 2)
+          }
+          lib_pkgs <- function() basename(list.dirs(lib, recursive = FALSE))
+
+          # Pass 1: prebuilt binaries (CRAN/Posit + Bioconductor where available).
+          install_into(closure, "binary")
+
+          # Pass 2: source fallback for anything without a binary for this R
+          # release (some Bioconductor packages). GitHub runners have a toolchain.
+          no_binary <- setdiff(closure, lib_pkgs())
+          if (length(no_binary)) {
+            cat("no binary available, installing from source:", length(no_binary), "\n")
+            install_into(no_binary, "source")
+          }
+
+          present <- lib_pkgs()
+          required <- setdiff(seed, base_pkgs)
+          missing <- setdiff(required, present)
+          if (length(missing)) stop("packages missing from rlib: ", paste(missing, collapse = ", "))
+          still_dep <- setdiff(closure, present)
+          if (length(still_dep)) cat("WARNING: closure packages still missing:", paste(still_dep, collapse = ", "), "\n")
+          cat("rlib packages:", length(present), "\n")
+
+          # --- 4. write manifest.json ---------------------------------------
+          pkgs <- as.data.frame(installed.packages(lib.loc = lib))
+          man <- list(
+            schema = 1L,
+            id = Sys.getenv("APP_ID"), name = Sys.getenv("APP_NAME"), version = Sys.getenv("VERSION"),
+            author = Sys.getenv("APP_AUTHOR"), description = Sys.getenv("APP_DESC"),
+            homepage = Sys.getenv("APP_HOMEPAGE"), license = Sys.getenv("APP_LICENSE"),
+            runtime = "r-shiny", entry = "app/app.R",
+            platform = "${{ matrix.platform }}",
+            r_version = Sys.getenv("R_VERSION"), min_shell_version = "0.1.0",
+            notes = "Multi-file Shiny app (not an R package). Bundle entry app/app.R is generated and sources global.R + R/*.R + ui.R + server.R. pasilla (example data only) and required_package_install.R are not bundled. No runtime network required.",
+            packages = lapply(seq_len(nrow(pkgs)), function(i) list(
+              name = pkgs$Package[i], version = pkgs$Version[i],
+              path = file.path("rlib", pkgs$Package[i]), source = "cran"))
+          )
+          jsonlite::write_json(man, file.path(bundle, "manifest.json"), pretty = TRUE, auto_unbox = TRUE)
+
+      - name: Zip + sha256
+        shell: Rscript {0}
+        run: |
+          out <- sprintf("%s-%s-%s.zip", Sys.getenv("APP_ID"), Sys.getenv("VERSION"), "${{ matrix.platform }}")
+          bundle <- file.path(getwd(), "bundle")
+          old <- setwd(bundle); on.exit(setwd(old))
+          zip::zipr(out, files = list.files(".", all.files = TRUE, no.. = TRUE))
+          entries <- utils::unzip(out, list = TRUE)$Name
+          if (!any(grepl("^rlib/", entries))) stop("zip is missing rlib/ -- aborting")
+          if (!any(grepl("^app/app[.]R$", entries))) stop("zip is missing app/app.R -- aborting")
+          if (!any(grepl("^app/ui[.]R$", entries))) stop("zip is missing app/ui.R -- aborting")
+          setwd(old)
+          file.rename(file.path(bundle, out), out)
+          sha <- digest::digest(out, algo = "sha256", file = TRUE)
+          sz <- file.size(out)
+          cat("bundle zip size (bytes):", sz, "\n")
+          if (sz > 2 * 1024^3) {
+            warning("bundle exceeds the 2 GiB GitHub Release asset limit; ",
+                    "trim heavy dependencies or split the app.")
+          }
+          writeLines(sprintf('{"platform":"%s","file":"%s","sha256":"%s","size":%d}',
+                     "${{ matrix.platform }}", out, sha, sz),
+                     sprintf("meta-%s.json", "${{ matrix.platform }}"))
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: |
+            *.zip
+            meta-*.json
+
+  release:
+    needs: bundle
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: artifacts/*.zip

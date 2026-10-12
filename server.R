@@ -272,8 +272,8 @@ server <- function(input, output){
                                                                              l2fc = input$l2fc, 
                                                                              fdr = input$fdr)
                                         ### Mark "Up/Down" DEG
-                                        result_all$result_edgeR <- tibble::add_column(result_all$result_edgeR, Regulate = dplyr::if_else(result_all$result_edgeR$logFC > 0, true = "Up", false = dplyr::if_else(result_all$result_edgeR$logFC < 0, true = "Down", false = "Zero_value")))
-                                      }
+                                        result_all$result_edgeR$Regulate <- ifelse(result_all$result_edgeR$logFC > 0, "Up",
+                                                                                   ifelse(result_all$result_edgeR$logFC < 0, "Down", "Zero_value"))                                      }
                                       if ("DESeq2" %in% input$DEG_methods) {
                                         cat("- DESeq2\n")
                                         result_all$result_DESeq2 <- run_DESeq2(cts = internal$count_data, 
@@ -282,8 +282,8 @@ server <- function(input, output){
                                                                                l2fc = input$l2fc, 
                                                                                fdr = input$fdr)
                                         ### Mark "Up/Down" DEG
-                                        result_all$result_DESeq2 <- tibble::add_column(result_all$result_DESeq2, Regulate = dplyr::if_else(result_all$result_DESeq2$log2FoldChange > 0, true = "Up", false = dplyr::if_else(result_all$result_DESeq2$log2FoldChange < 0, true = "Down", false = "Zero_value")))
-                                      }
+                                        result_all$result_DESeq2$Regulate <- ifelse(result_all$result_DESeq2$log2FoldChange > 0, "Up",
+                                                                                   ifelse(result_all$result_DESeq2$log2FoldChange < 0, "Down", "Zero_value"))                                      }
                                       if ("NOISeq" %in% input$DEG_methods) {
                                         cat("- NOISeq\n")
                                         result_all$result_NOISeq <- run_NOISeq(cts = internal$count_data, 
@@ -292,8 +292,8 @@ server <- function(input, output){
                                                                                l2fc = input$l2fc, 
                                                                                fdr = input$fdr)
                                         ### Mark "Up/Down" DEG
-                                        result_all$result_NOISeq <- tibble::add_column(result_all$result_NOISeq, Regulate = dplyr::if_else(result_all$result_NOISeq$log2FC > 0, true = "Up", false = dplyr::if_else(result_all$result_NOISeq$log2FC < 0, true = "Down", false = "Zero_value")))
-                                      }
+                                        result_all$result_NOISeq$Regulate <- ifelse(result_all$result_NOISeq$log2FC > 0, "Up",
+                                                                                        ifelse(result_all$result_NOISeq$log2FC < 0, "Down", "Zero_value"))                                      }
                                       if ("EBSeq" %in% input$DEG_methods) {
                                         cat("- EBSeq\n")
                                         result_all$result_EBSeq <- run_EBSeq(cts = internal$count_data, 
@@ -302,8 +302,8 @@ server <- function(input, output){
                                                                              l2fc = input$l2fc, 
                                                                              fdr = input$fdr)
                                         ### Mark "Up/Down" DEG
-                                        result_all$result_EBSeq <- tibble::add_column(result_all$result_EBSeq, Regulate = dplyr::if_else(result_all$result_EBSeq$Log2FC > 0, true = "Up", false = dplyr::if_else(result_all$result_EBSeq$Log2FC < 0, true = "Down", false = "Zero_value")))
-                                      }
+                                        result_all$result_EBSeq$Regulate <- ifelse(result_all$result_EBSeq$Log2FC > 0, "Up",
+                                                                                        ifelse(result_all$result_EBSeq$Log2FC < 0, "Down", "Zero_value"))                                      }
                                       
                                       
                                       #
